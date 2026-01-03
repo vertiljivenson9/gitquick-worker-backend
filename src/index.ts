@@ -1,42 +1,65 @@
 export default {
   async fetch(req: Request, env: any) {
-    if (req.method !== "POST") {
-      return new Response("Method Not Allowed", { status: 405 });
-    }
+    const url = new URL(req.url);
 
-    let body;
-    try {
-      body = await req.json();
-    } catch {
-      return new Response("Invalid JSON", { status: 400 });
-    }
-
-    if (!body.repo) {
-      return new Response("Missing repo", { status: 400 });
-    }
-
-    const response = await fetch(
-      `https://api.github.com/repos/${body.repo}/dispatches`,
-      {
-        method: "POST",
-        headers: {
-          "Accept": "application/vnd.github+json",
-          "Authorization": `Bearer ${env.GITHUB_TOKEN}`,
-          "X-GitHub-Api-Version": "2022-11-28"
-        },
-        body: JSON.stringify({
-          event_type: "gitquick_push"
-        })
+    /* ===========================
+       OAUTH CALLBACK
+    ============================ */
+    if (url.pathname === "/oauth/callback") {
+      const code = url.searchParams.get("code");
+      if (!code) {
+        return new Response("Missing code", { status: 400 });
       }
-    );
 
-    if (!response.ok) {
-      return new Response(await response.text(), { status: 500 });
+      const tokenRes = await fetch(
+        "https://github.com/login/oauth/access_token",
+        {
+          method: "POST",
+          headers: {
+            "Accept": "application/json",
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            client_id: env.GITHUB_CLIENT_ID,
+            client_secret: env.GITHUB_CLIENT_SECRET,
+            code
+          })
+        }
+      );
+
+      const tokenData = await tokenRes.json();
+      if (!tokenData.access_token) {
+        return new Response("OAuth failed", { status: 500 });
+      }
+
+      const reposRes = await fetch(
+        "https://api.github.com/user/repos?per_page=100",
+        {
+          headers: {
+            "Authorization": `Bearer ${tokenData.access_token}`,
+            "Accept": "application/vnd.github+json"
+          }
+        }
+      );
+
+      const repos = await reposRes.json();
+      const names = repos.map((r: any) => r.full_name);
+
+      return new Response(
+        `<script>
+          window.opener.postMessage(
+            ${JSON.stringify(names)},
+            "*"
+          );
+          window.close();
+        </script>`,
+        { headers: { "Content-Type": "text/html" } }
+      );
     }
 
-    return new Response(
-      JSON.stringify({ ok: true }),
-      { headers: { "Content-Type": "application/json" } }
-    );
+    /* ===========================
+       DEFAULT API (ZIP PUSH LUEGO)
+    ============================ */
+    return new Response("GitQuick Worker OK");
   }
 };
