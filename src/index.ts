@@ -2,24 +2,18 @@ export default {
   async fetch(req: Request, env: any) {
     const url = new URL(req.url);
 
-    /* ===========================
-       OAUTH CALLBACK
-    ============================ */
-    if (url.pathname === "/oauth/callback") {
+    /* ========= CALLBACK OAUTH ========= */
+    if (url.pathname === "/callback") {
       const code = url.searchParams.get("code");
-      if (!code) {
-        return new Response("Missing code", { status: 400 });
-      }
+      if (!code) return new Response("No code", { status: 400 });
 
+      // 1. Intercambiar code por token
       const tokenRes = await fetch(
         "https://github.com/login/oauth/access_token",
         {
           method: "POST",
-          headers: {
-            "Accept": "application/json",
-            "Content-Type": "application/json"
-          },
-          body: JSON.stringify({
+          headers: { "Accept": "application/json" },
+          body: new URLSearchParams({
             client_id: env.GITHUB_CLIENT_ID,
             client_secret: env.GITHUB_CLIENT_SECRET,
             code
@@ -28,38 +22,33 @@ export default {
       );
 
       const tokenData = await tokenRes.json();
-      if (!tokenData.access_token) {
-        return new Response("OAuth failed", { status: 500 });
-      }
+      const token = tokenData.access_token;
+      if (!token) return new Response("Token failed", { status: 500 });
 
-      const reposRes = await fetch(
-        "https://api.github.com/user/repos?per_page=100",
-        {
-          headers: {
-            "Authorization": `Bearer ${tokenData.access_token}`,
-            "Accept": "application/vnd.github+json"
-          }
+      // 2. Obtener repos
+      const reposRes = await fetch("https://api.github.com/user/repos", {
+        headers: {
+          "Authorization": `Bearer ${token}`,
+          "User-Agent": "gitquick"
         }
-      );
+      });
 
-      const repos = await reposRes.json();
-      const names = repos.map((r: any) => r.full_name);
+      const repos = (await reposRes.json())
+        .map((r: any) => r.full_name);
 
-      return new Response(
-        `<script>
-          window.opener.postMessage(
-            ${JSON.stringify(names)},
-            "*"
-          );
-          window.close();
-        </script>`,
-        { headers: { "Content-Type": "text/html" } }
+      // 3. Redirigir a la web con repos
+      const encoded = btoa(JSON.stringify(repos));
+      return Response.redirect(
+        `https://gitquick-web.pages.dev/?repos=${encoded}`,
+        302
       );
     }
 
-    /* ===========================
-       DEFAULT API (ZIP PUSH LUEGO)
-    ============================ */
-    return new Response("GitQuick Worker OK");
+    /* ========= SUBIDA ZIP ========= */
+    if (req.method === "POST") {
+      return new Response("ZIP endpoint listo ✔");
+    }
+
+    return new Response("OK");
   }
 };
