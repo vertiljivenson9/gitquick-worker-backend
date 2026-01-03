@@ -3,11 +3,10 @@ export default {
     const url = new URL(req.url);
 
     /* ========= CALLBACK OAUTH ========= */
-    if (url.pathname === "/callback") {
+    if (url.pathname === "/oauth/callback") {
       const code = url.searchParams.get("code");
       if (!code) return new Response("No code", { status: 400 });
 
-      // 1. Intercambiar code por token
       const tokenRes = await fetch(
         "https://github.com/login/oauth/access_token",
         {
@@ -23,9 +22,10 @@ export default {
 
       const tokenData = await tokenRes.json();
       const token = tokenData.access_token;
-      if (!token) return new Response("Token failed", { status: 500 });
+      if (!token) {
+        return new Response(JSON.stringify(tokenData), { status: 500 });
+      }
 
-      // 2. Obtener repos
       const reposRes = await fetch("https://api.github.com/user/repos", {
         headers: {
           "Authorization": `Bearer ${token}`,
@@ -33,10 +33,8 @@ export default {
         }
       });
 
-      const repos = (await reposRes.json())
-        .map((r: any) => r.full_name);
+      const repos = (await reposRes.json()).map((r: any) => r.full_name);
 
-      // 3. Redirigir a la web con repos
       const encoded = btoa(JSON.stringify(repos));
       return Response.redirect(
         `https://gitquick-web.pages.dev/?repos=${encoded}`,
@@ -44,11 +42,6 @@ export default {
       );
     }
 
-    /* ========= SUBIDA ZIP ========= */
-    if (req.method === "POST") {
-      return new Response("ZIP endpoint listo ✔");
-    }
-
-    return new Response("OK");
+    return new Response("GitQuick Worker OK");
   }
 };
